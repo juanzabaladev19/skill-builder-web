@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prueba de Selección Múltiple</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f8f9fa; }
+    .question-card { max-width: 960px; }
+    .option-item input { transform: scale(1.15); margin-right: .6rem; }
+    .option-item { transition: background-color .15s ease-in-out; }
+    .option-item:hover { background-color: #f1f3f5; }
+    .cursor-pointer { cursor: pointer; }
+    .fixed-footer { position: sticky; bottom: 0; background: #fff; border-top: 1px solid #dee2e6; z-index: 10; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
+    <div class="container">
+      <a class="navbar-brand fw-semibold" href="#">MCQ Tester</a>
+      <div class="d-flex align-items-center gap-3 ms-auto small text-secondary">
+        <div>Tiempo: <span id="timer" class="fw-semibold text-dark">00:00</span></div>
+        <div class="vr"></div>
+        <div>Progreso: <span id="progressText">0/0</span></div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container my-4">
+    <!-- Configuración / Carga CSV -->
+    <section id="uploadSection">
+      <div class="row justify-content-center">
+        <div class="col-lg-10">
+          <div class="card shadow-sm">
+            <div class="card-body p-4">
+              <h1 class="h4 mb-3">Configurar prueba</h1>
+              <p class="text-secondary">Carga un archivo <span class="code">.csv</span> con las preguntas (<strong>se leerán todas</strong>). Al iniciar, <strong>se barajarán</strong> y <strong>se tomarán hasta 65</strong>. Soporta preguntas con <strong>una</strong> o <strong>dos</strong> respuestas correctas.</p>
+
+              <div class="mb-3">
+                <label for="csvInput" class="form-label">Archivo CSV de preguntas</label>
+                <input class="form-control" type="file" id="csvInput" accept=".csv" />
+                <div class="form-text">Estructura sugerida del CSV: <span class="code">id,question,option_a,option_b,option_c,option_d,correct,explanation</span>. En <span class="code">correct</span> usa letras (A–D). Para 2 respuestas, separa con <strong>|</strong> (p. ej. <span class="code">A|C</span>).</div>
+              </div>
+
+              <div class="d-flex gap-2 flex-wrap">
+                <button id="btnPreviewCsv" class="btn btn-outline-secondary">Previsualizar CSV</button>
+                <button id="btnStart" class="btn btn-primary" disabled>Iniciar prueba</button>
+                <button id="btnDownloadTemplate" class="btn btn-outline-primary">Descargar plantilla CSV</button>
+                <button id="btnResume" class="btn btn-warning d-none">Continuar intento guardado</button>
+                <button id="btnClearState" class="btn btn-outline-danger ms-auto">Borrar intento guardado</button>
+              </div>
+
+              <div id="csvPreview" class="mt-4"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Prueba -->
+    <section id="quizSection" class="d-none">
+      <div class="row justify-content-center">
+        <div class="col-lg-10">
+          <div class="card shadow-sm question-card">
+            <div class="card-body p-4">
+              <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                  <div class="text-secondary small">Pregunta <span id="qIndexText">1</span> de <span id="qTotalText">0</span></div>
+                  <h2 id="questionText" class="h5 mb-0"></h2>
+                  <div id="selectionHint" class="small text-secondary mt-1"></div>
+                </div>
+                <span class="badge text-bg-light" id="questionId"></span>
+              </div>
+
+              <form id="optionsForm" class="mt-3">
+                <div id="optionsContainer" class="vstack gap-2"></div>
+              </form>
+            </div>
+          </div>
+
+          <div class="fixed-footer py-3 mt-3">
+            <div class="d-flex align-items-center gap-2">
+              <button id="btnPrev" class="btn btn-outline-secondary" type="button">Anterior</button>
+              <button id="btnNext" class="btn btn-primary" type="button">Siguiente</button>
+              <button id="btnFinish" class="btn btn-success ms-auto" type="button">Finalizar prueba</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resumen -->
+    <section id="summarySection" class="d-none">
+      <div class="row justify-content-center">
+        <div class="col-12 col-lg-11">
+          <div class="card shadow-sm">
+            <div class="card-body p-4">
+              <h2 class="h4 mb-3">Resumen de la prueba</h2>
+              <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                  <div class="p-3 rounded border bg-light">
+                    <div class="text-secondary small">Duración</div>
+                    <div id="summaryTime" class="fs-5 fw-semibold">—</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="p-3 rounded border bg-light">
+                    <div class="text-secondary small">Correctas</div>
+                    <div id="summaryCorrect" class="fs-5 fw-semibold">—</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="p-3 rounded border bg-light">
+                    <div class="text-secondary small">Incorrectas</div>
+                    <div id="summaryIncorrect" class="fs-5 fw-semibold">—</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="p-3 rounded border bg-light">
+                    <div class="text-secondary small">Puntaje</div>
+                    <div id="summaryScore" class="fs-5 fw-semibold">—</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>ID</th>
+                      <th>Pregunta</th>
+                      <th>Respuesta</th>
+                      <th>Correcta</th>
+                      <th>Resultado</th>
+                      <th>Explicación</th>
+                    </tr>
+                  </thead>
+                  <tbody id="summaryTableBody"></tbody>
+                </table>
+              </div>
+
+              <div class="d-flex gap-2 mt-3">
+                <button id="btnRetake" class="btn btn-outline-primary">Reiniciar (mismas preguntas)</button>
+                <button id="btnBackHome" class="btn btn-secondary">Volver al inicio</button>
+                <button id="btnDownloadResults" class="btn btn-outline-success ms-auto">Descargar resultados (CSV)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // ===== Utilidades =====
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+    const STORAGE_KEY = 'mcqTesterState_v2_multi';
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const m = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+      const s = String(totalSeconds % 60).padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    // CSV parser con soporte de comillas
+    function parseCSV(text) {
+      const rows = [];
+      let i = 0, field = '', row = [], inQuotes = false;
+      const pushField = () => { row.push(field); field = ''; };
+      const pushRow = () => { rows.push(row); row = []; };
+      while (i < text.length) {
+        const ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i+1] === '"') { field += '"'; i++; }
+            else { inQuotes = false; }
+          } else { field += ch; }
+        } else {
+          if (ch === '"') inQuotes = true;
+          else if (ch === ',') pushField();
+          else if (ch === '\n') { pushField(); pushRow(); }
+          else if (ch === '\r') { /* ignore */ }
+          else field += ch;
+        }
+        i++;
+      }
+      if (field.length || row.length) { pushField(); pushRow(); }
+      return rows.filter(r => r.some(c => (c||'').trim() !== ''));
+    }
+
+    const normalizeHeader = (h) => (h||'').trim().toLowerCase();
+
+    function parseCorrectCell(cell) {
+      // Admite: "A", "A|C", "A;C", "A,C" (se normaliza a array de letras únicas)
+      const raw = (cell || '').toUpperCase().trim();
+      if (!raw) return [];
+      const parts = raw.split(/[|;,\s]+/).filter(Boolean);
+      const unique = Array.from(new Set(parts));
+      // Validar letras
+      if (!unique.every(l => ['A','B','C','D'].includes(l))) {
+        throw new Error('Columna "correct" contiene valores inválidos (solo A, B, C o D).');
+      }
+      if (unique.length === 0) return [];
+      if (unique.length > 2) throw new Error('Actualmente solo se admiten hasta 2 respuestas correctas.');
+      return unique;
+    }
+
+    function csvToQuestions(csvText) {
+      const rows = parseCSV(csvText);
+      if (!rows.length) throw new Error('CSV vacío.');
+      const header = rows[0].map(normalizeHeader);
+      const col = (name) => header.indexOf(name);
+      const req = ['id','question','option_a','option_b','correct'];
+      const missing = req.filter(k => col(k) === -1);
+      if (missing.length) throw new Error('Faltan columnas requeridas: ' + missing.join(', '));
+
+      const idx = {
+        id: col('id'), q: col('question'), a: col('option_a'), b: col('option_b'), c: col('option_c'), d: col('option_d'),
+        correct: col('correct'), expl: col('explanation')
+      };
+
+      const all = [];
+      for (let r = 1; r < rows.length; r++) {
+        const row = rows[r];
+        const id = (row[idx.id]||'').trim() || String(r);
+        const text = (row[idx.q]||'').trim();
+        if (!text) continue;
+        const options = [row[idx.a], row[idx.b], row[idx.c], row[idx.d]].map(x => (x||'').trim()).filter(Boolean);
+        if (options.length < 2) throw new Error(`La pregunta "${id}" debe tener al menos 2 opciones.`);
+        const correctLetters = parseCorrectCell(row[idx.correct]);
+        if (correctLetters.length === 0) throw new Error(`La pregunta "${id}" no tiene "correct" válido.`);
+        // Validar que indices existan
+        const indices = correctLetters.map(l => l.charCodeAt(0)-65);
+        if (!indices.every(i => i < options.length)) throw new Error(`"correct" se refiere a opciones que no existen en "${id}".`);
+        all.push({ id, text, options, correct: correctLetters, explanation: (row[idx.expl]||'').trim() });
+      }
+      return all;
+    }
+
+    // Aleatorización
+    function shuffleInPlace(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function shuffleOptionsForQuestion(q) {
+      const original = q.options.map((text, idx) => ({ text, idx }));
+      shuffleInPlace(original);
+      q.options = original.map(o => o.text);
+      // Remap de letras correctas
+      const oldIdx = q.correct.map(l => l.charCodeAt(0) - 65);
+      const newLetters = oldIdx.map(oi => {
+        const newPos = original.findIndex(o => o.idx === oi);
+        return String.fromCharCode(65 + newPos);
+      });
+      q.correct = newLetters.sort();
+    }
+
+    function pickShuffledTop65(allQs) {
+      const shuffled = [...allQs];
+      shuffleInPlace(shuffled);
+      if (shuffled.length > 65) shuffled.length = 65;
+      shuffled.forEach(shuffleOptionsForQuestion);
+      return shuffled;
+    }
+
+    // ===== Estado =====
+    const state = { questions: [], answers: [], index: 0, startedAt: null, finishedAt: null };
+    let timerHandle = null;
+
+    const saveState = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch { return null; } }
+    const clearState = () => localStorage.removeItem(STORAGE_KEY);
+
+    // ===== UI =====
+    function showSection(id) { ['uploadSection','quizSection','summarySection'].forEach(sec => document.getElementById(sec).classList.toggle('d-none', sec !== id)); }
+    function updateTimer() { const end = state.finishedAt || Date.now(); const t = state.startedAt ? formatDuration(end - state.startedAt) : '00:00'; document.getElementById('timer').textContent = t; }
+    function startTimer() { stopTimer(); timerHandle = setInterval(updateTimer, 250); }
+    function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
+
+    function renderProgress() { document.getElementById('progressText').textContent = `${Math.min(state.index+1, state.questions.length)}/${state.questions.length}`; }
+
+    function renderQuestion() {
+      const q = state.questions[state.index];
+      document.getElementById('qIndexText').textContent = state.index + 1;
+      document.getElementById('qTotalText').textContent = state.questions.length;
+      document.getElementById('questionText').textContent = q.text;
+      document.getElementById('questionId').textContent = `ID: ${q.id}`;
+
+      const isMulti = q.correct.length > 1;
+      document.getElementById('selectionHint').textContent = isMulti ? `Selecciona ${q.correct.length} opciones` : 'Selecciona 1 opción';
+
+      const cont = document.getElementById('optionsContainer');
+      cont.innerHTML = '';
+
+      // Normalizar respuesta almacenada a array de letras
+      let current = state.answers[state.index];
+      if (!Array.isArray(current)) current = current ? [current] : [];
+
+      q.options.forEach((optText, i) => {
+        const letter = String.fromCharCode(65 + i);
+        const optId = `opt_${state.index}_${letter}`;
+        const div = document.createElement('div');
+        div.className = 'option-item form-check p-3 rounded border d-flex align-items-start gap-2 cursor-pointer';
+        div.innerHTML = `
+          <input class="form-check-input mt-1" type="${isMulti ? 'checkbox' : 'radio'}" name="options${state.index}" id="${optId}" value="${letter}">
+          <label class="form-check-label w-100" for="${optId}">
+            <span class="badge text-bg-light me-2">${letter}</span>
+            <span>${optText}</span>
+          </label>
+        `;
+        const input = div.querySelector('input');
+        input.checked = current.includes(letter);
+        div.addEventListener('click', (e) => {
+          // Evitar que el click en el contenedor rompa el estado de checkboxes
+          if ((e.target || e.srcElement).tagName !== 'INPUT') {
+            input.checked = !input.checked;
+          }
+          if (isMulti) {
+            let sel = new Set((state.answers[state.index] || []));
+            if (input.checked) {
+              sel.add(letter);
+              if (sel.size > q.correct.length) {
+                // Limitar máximo seleccionadas
+                input.checked = false; sel.delete(letter);
+                // Feedback sutil
+                const hint = document.getElementById('selectionHint');
+                hint.classList.add('text-danger');
+                setTimeout(() => hint.classList.remove('text-danger'), 400);
+              }
+            } else {
+              sel.delete(letter);
+            }
+            state.answers[state.index] = Array.from(sel).sort();
+          } else {
+            state.answers[state.index] = [letter];
+          }
+          saveState();
+        });
+        cont.appendChild(div);
+      });
+
+      document.getElementById('btnPrev').disabled = state.index === 0;
+      document.getElementById('btnNext').disabled = state.index >= state.questions.length - 1;
+    }
+
+    const goNext = () => { if (state.index < state.questions.length - 1) { state.index++; saveState(); renderProgress(); renderQuestion(); } };
+    const goPrev = () => { if (state.index > 0) { state.index--; saveState(); renderProgress(); renderQuestion(); } };
+
+    function finalizeQuiz() { state.finishedAt = Date.now(); saveState(); showSummary(); }
+
+    function calculateResults() {
+      const results = state.questions.map((q, i) => {
+        const chosenArr = Array.isArray(state.answers[i]) ? state.answers[i] : (state.answers[i] ? [state.answers[i]] : []);
+        const chosenSorted = [...chosenArr].sort();
+        const correctSorted = [...q.correct].sort();
+        const isCorrect = chosenSorted.length === correctSorted.length && chosenSorted.every((v, idx) => v === correctSorted[idx]);
+        return {
+          index: i+1, id: q.id, question: q.text,
+          chosen: chosenSorted.join(' | ') || null,
+          correct: correctSorted.join(' | '),
+          isCorrect, explanation: q.explanation || ''
+        };
+      });
+      const correctCount = results.filter(r => r.isCorrect).length;
+      const incorrectCount = results.length - correctCount;
+      const duration = (state.finishedAt || Date.now()) - (state.startedAt || Date.now());
+      const score = results.length ? Math.round((correctCount / results.length) * 100) : 0;
+      return { results, correctCount, incorrectCount, duration, score };
+    }
+
+    function showSummary() {
+      showSection('summarySection');
+      stopTimer(); updateTimer();
+      const { results, correctCount, incorrectCount, duration, score } = calculateResults();
+      $('#summaryTime').textContent = formatDuration(duration);
+      $('#summaryCorrect').textContent = `${correctCount}`;
+      $('#summaryIncorrect').textContent = `${incorrectCount}`;
+      $('#summaryScore').textContent = `${score}%`;
+      const tbody = $('#summaryTableBody');
+      tbody.innerHTML = '';
+      results.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${r.index}</td>
+          <td>${r.id}</td>
+          <td>${r.question}</td>
+          <td>${r.chosen ?? '<span class="text-secondary">—</span>'}</td>
+          <td>${r.correct}</td>
+          <td>${r.isCorrect ? '<span class="badge text-bg-success">Correcta</span>' : '<span class="badge text-bg-danger">Incorrecta</span>'}</td>
+          <td>${r.explanation ? r.explanation : '<span class="text-secondary">—</span>'}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function startQuizWith(questions) {
+      state.questions = questions;
+      state.answers = new Array(questions.length).fill([]); // arrays de letras
+      state.index = 0;
+      state.startedAt = Date.now();
+      state.finishedAt = null;
+      saveState();
+      showSection('quizSection');
+      renderProgress();
+      renderQuestion();
+      startTimer();
+    }
+
+    function resumeSavedAttempt(saved) {
+      state.questions = saved.questions || [];
+      state.answers = Array.isArray(saved.answers) ? saved.answers : new Array(state.questions.length).fill([]);
+      state.index = Math.min(saved.index || 0, state.questions.length - 1);
+      state.startedAt = saved.startedAt || Date.now();
+      state.finishedAt = saved.finishedAt || null;
+      showSection(state.finishedAt ? 'summarySection' : 'quizSection');
+      if (!state.finishedAt) { startTimer(); renderQuestion(); renderProgress(); }
+      else { showSummary(); }
+    }
+
+    function resetKeepingQuestions() {
+      if (!state.questions.length) return;
+      const qs = state.questions;
+      state.questions = qs;
+      state.answers = new Array(qs.length).fill([]);
+      state.index = 0;
+      state.startedAt = Date.now();
+      state.finishedAt = null;
+      saveState();
+      showSection('quizSection');
+      renderProgress();
+      renderQuestion();
+      startTimer();
+    }
+
+    function buildPreviewTable(questions) {
+      const count = questions.length;
+      const head = `\n<p class="mb-2"><strong>${count}</strong> preguntas detectadas. (Se barajarán y se usarán hasta 65)</p>`;
+      const sample = questions.slice(0, Math.min(5, count));
+      let html = head + '<div class="table-responsive"><table class="table table-sm">\n<thead><tr><th>#</th><th>ID</th><th>Pregunta</th><th>A</th><th>B</th><th>C</th><th>D</th><th>Correcta(s)</th></tr></thead><tbody>';
+      sample.forEach((q, i) => {
+        html += `<tr><td>${i+1}</td><td>${q.id}</td><td>${q.text}</td><td>${q.options[0]||''}</td><td>${q.options[1]||''}</td><td>${q.options[2]||''}</td><td>${q.options[3]||''}</td><td>${q.correct.join(' | ')}</td></tr>`;
+      });
+      html += '</tbody></table></div>';
+      if (count > sample.length) html += `<div class="text-secondary small">Mostrando 5 de ${count} (vista previa).</div>`;
+      return html;
+    }
+
+    function downloadTemplateCSV() {
+      const header = 'id,question,option_a,option_b,option_c,option_d,correct,explanation\n';
+      const example = [
+        ['Q1','¿Cuál es la capital de Francia?','París','Lyon','Marsella','Niza','A','París es la capital.'],
+        ['Q2','Seleccione dos números pares','1','2','3','4','B|D','Ambas son pares.']
+      ];
+      const lines = example.map(r => r.map(v => {
+        const s = String(v ?? '');
+        return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replaceAll('"','""') + '"' : s;
+      }).join(',')).join('\n');
+      const csv = header + lines + '\n';
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'plantilla_preguntas.csv';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+
+    function downloadResultsCSV() {
+      const { results, duration, score } = calculateResults();
+      const header = ['index','id','question','chosen','correct','is_correct','explanation'];
+      const rows = results.map(r => [r.index, r.id, r.question, r.chosen || '', r.correct, r.isCorrect ? '1' : '0', r.explanation]);
+      const meta = [ ['duration_mmss', formatDuration(duration)], ['score_percent', `${score}`] ];
+      const csv = [ '# resumen', meta.map(([k,v]) => `${k},${v}`).join('\n'), '# resultados', header.join(','),
+        ...rows.map(r => r.map(v => { const s = String(v ?? ''); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replaceAll('"','""') + '"' : s; }).join(','))
+      ].join('\n') + '\n';
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'resultado_prueba.csv';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+
+    // ===== Eventos =====
+    document.getElementById('btnPreviewCsv').addEventListener('click', async () => {
+      const file = document.getElementById('csvInput').files?.[0];
+      if (!file) { alert('Selecciona un archivo CSV.'); return; }
+      const text = await file.text();
+      let questions; try { questions = csvToQuestions(text); } catch (e) { alert('Error leyendo CSV: ' + e.message); return; }
+      document.getElementById('csvPreview').innerHTML = buildPreviewTable(questions) + '<div class="alert alert-info mt-2 py-2 small">Al iniciar: barajar preguntas, recortar a 65 y barajar opciones conservando la(s) correcta(s).</div>';
+      document.getElementById('btnStart').disabled = false;
+    });
+
+    document.getElementById('btnStart').addEventListener('click', async () => {
+      const file = document.getElementById('csvInput').files?.[0]; if (!file) { alert('Selecciona un archivo CSV.'); return; }
+      const text = await file.text();
+      let questions; try { questions = csvToQuestions(text); } catch (e) { alert('Error leyendo CSV: ' + e.message); return; }
+      const picked = pickShuffledTop65(questions);
+      startQuizWith(picked);
+    });
+
+    document.getElementById('btnPrev').addEventListener('click', goPrev);
+    document.getElementById('btnNext').addEventListener('click', goNext);
+    document.getElementById('btnFinish').addEventListener('click', () => { if (confirm('¿Deseas finalizar la prueba?')) finalizeQuiz(); });
+
+    document.getElementById('btnRetake').addEventListener('click', () => { if (confirm('Esto reiniciará tus respuestas.')) resetKeepingQuestions(); });
+    document.getElementById('btnBackHome').addEventListener('click', () => showSection('uploadSection'));
+    document.getElementById('btnDownloadTemplate').addEventListener('click', downloadTemplateCSV);
+    document.getElementById('btnDownloadResults').addEventListener('click', downloadResultsCSV);
+    document.getElementById('btnClearState').addEventListener('click', () => { clearState(); alert('Intento guardado eliminado.'); document.getElementById('btnResume').classList.add('d-none'); });
+    document.getElementById('btnResume').addEventListener('click', () => { const saved = loadState(); if (saved) resumeSavedAttempt(saved); });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const saved = loadState();
+      if (saved && Array.isArray(saved.questions) && saved.questions.length) {
+        document.getElementById('btnResume').classList.remove('d-none');
+      }
+      updateTimer();
+    });
+  </script>
+</body>
+</html>
