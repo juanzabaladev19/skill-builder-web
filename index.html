@@ -22,7 +22,7 @@
     <div class="container">
       <a class="navbar-brand fw-semibold" href="#">MCQ Tester</a>
       <div class="d-flex align-items-center gap-3 ms-auto small text-secondary">
-        <div>Tiempo: <span id="timer" class="fw-semibold text-dark">00:00</span></div>
+        <div>Tiempo total: <span id="timer" class="fw-semibold text-dark">00:00</span></div>
         <div class="vr"></div>
         <div>Progreso: <span id="progressText">0/0</span></div>
       </div>
@@ -30,8 +30,9 @@
   </nav>
 
   <main class="container my-4">
-    <!-- Configuración / Carga CSV -->
-    <section id="uploadSection">
+
+    <!-- CARGA CSV / INICIO -->
+    <section id="uploadSection" class="">
       <div class="row justify-content-center">
         <div class="col-lg-10">
           <div class="card shadow-sm">
@@ -42,7 +43,7 @@
               <div class="mb-3">
                 <label for="csvInput" class="form-label">Archivo CSV de preguntas</label>
                 <input class="form-control" type="file" id="csvInput" accept=".csv" />
-                <div class="form-text">Estructura sugerida del CSV: <span class="code">id,question,option_a,option_b,option_c,option_d,correct,explanation</span>. En <span class="code">correct</span> usa letras (A–D). Para 2 respuestas, separa con <strong>|</strong> (p. ej. <span class="code">A|C</span>).</div>
+                <div class="form-text">Estructura CSV: <span class="code">id,question,option_a,option_b,option_c,option_d,correct,explanation</span>. <span class="code">correct</span> admite <span class="code">A</span> o <span class="code">A|C</span> (máximo 2).</div>
               </div>
 
               <div class="d-flex gap-2 flex-wrap">
@@ -60,7 +61,7 @@
       </div>
     </section>
 
-    <!-- Prueba -->
+    <!-- PRUEBA -->
     <section id="quizSection" class="d-none">
       <div class="row justify-content-center">
         <div class="col-lg-10">
@@ -72,7 +73,10 @@
                   <h2 id="questionText" class="h5 mb-0"></h2>
                   <div id="selectionHint" class="small text-secondary mt-1"></div>
                 </div>
-                <span class="badge text-bg-light" id="questionId"></span>
+                <div class="text-end small">
+                  <div class="text-secondary">Tiempo pregunta:</div>
+                  <div id="questionTimer" class="fw-semibold">00:00</div>
+                </div>
               </div>
 
               <form id="optionsForm" class="mt-3">
@@ -88,11 +92,12 @@
               <button id="btnFinish" class="btn btn-success ms-auto" type="button">Finalizar prueba</button>
             </div>
           </div>
+
         </div>
       </div>
     </section>
 
-    <!-- Resumen -->
+    <!-- RESUMEN -->
     <section id="summarySection" class="d-none">
       <div class="row justify-content-center">
         <div class="col-12 col-lg-11">
@@ -102,7 +107,7 @@
               <div class="row g-3 mb-4">
                 <div class="col-md-3">
                   <div class="p-3 rounded border bg-light">
-                    <div class="text-secondary small">Duración</div>
+                    <div class="text-secondary small">Duración total</div>
                     <div id="summaryTime" class="fs-5 fw-semibold">—</div>
                   </div>
                 </div>
@@ -136,6 +141,7 @@
                       <th>Respuesta</th>
                       <th>Correcta</th>
                       <th>Resultado</th>
+                      <th>Tiempo</th>
                       <th>Explicación</th>
                     </tr>
                   </thead>
@@ -153,6 +159,7 @@
         </div>
       </div>
     </section>
+
   </main>
 
   <!-- Bootstrap JS -->
@@ -161,7 +168,7 @@
     // ===== Utilidades =====
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
-    const STORAGE_KEY = 'mcqTesterState_v2_multi';
+    const STORAGE_KEY = 'mcqTesterState_v3_times';
 
     function formatDuration(ms) {
       const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -199,17 +206,14 @@
     const normalizeHeader = (h) => (h||'').trim().toLowerCase();
 
     function parseCorrectCell(cell) {
-      // Admite: "A", "A|C", "A;C", "A,C" (se normaliza a array de letras únicas)
       const raw = (cell || '').toUpperCase().trim();
       if (!raw) return [];
       const parts = raw.split(/[|;,\s]+/).filter(Boolean);
       const unique = Array.from(new Set(parts));
-      // Validar letras
       if (!unique.every(l => ['A','B','C','D'].includes(l))) {
-        throw new Error('Columna "correct" contiene valores inválidos (solo A, B, C o D).');
+        throw new Error('Columna "correct" inválida (solo A, B, C o D).');
       }
-      if (unique.length === 0) return [];
-      if (unique.length > 2) throw new Error('Actualmente solo se admiten hasta 2 respuestas correctas.');
+      if (unique.length > 2) throw new Error('Máximo 2 respuestas correctas.');
       return unique;
     }
 
@@ -237,36 +241,22 @@
         if (options.length < 2) throw new Error(`La pregunta "${id}" debe tener al menos 2 opciones.`);
         const correctLetters = parseCorrectCell(row[idx.correct]);
         if (correctLetters.length === 0) throw new Error(`La pregunta "${id}" no tiene "correct" válido.`);
-        // Validar que indices existan
-        const indices = correctLetters.map(l => l.charCodeAt(0)-65);
-        if (!indices.every(i => i < options.length)) throw new Error(`"correct" se refiere a opciones que no existen en "${id}".`);
+        const correctIdx = correctLetters.map(l => l.charCodeAt(0)-65);
+        if (!correctIdx.every(i => i < options.length)) throw new Error(`"correct" refiere opciones inexistentes en "${id}".`);
         all.push({ id, text, options, correct: correctLetters, explanation: (row[idx.expl]||'').trim() });
       }
       return all;
     }
 
     // Aleatorización
-    function shuffleInPlace(arr) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-      return arr;
-    }
-
+    function shuffleInPlace(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
     function shuffleOptionsForQuestion(q) {
       const original = q.options.map((text, idx) => ({ text, idx }));
       shuffleInPlace(original);
       q.options = original.map(o => o.text);
-      // Remap de letras correctas
       const oldIdx = q.correct.map(l => l.charCodeAt(0) - 65);
-      const newLetters = oldIdx.map(oi => {
-        const newPos = original.findIndex(o => o.idx === oi);
-        return String.fromCharCode(65 + newPos);
-      });
-      q.correct = newLetters.sort();
+      q.correct = oldIdx.map(oi => String.fromCharCode(65 + original.findIndex(o => o.idx === oi))).sort();
     }
-
     function pickShuffledTop65(allQs) {
       const shuffled = [...allQs];
       shuffleInPlace(shuffled);
@@ -276,73 +266,71 @@
     }
 
     // ===== Estado =====
-    const state = { questions: [], answers: [], index: 0, startedAt: null, finishedAt: null };
-    let timerHandle = null;
+    const state = { questions: [], answers: [], index: 0, startedAt: null, finishedAt: null, perQuestionMs: [], currentEnterAt: null };
+    let totalTimerHandle = null; let qTimerHandle = null;
 
-    const saveState = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch { return null; } }
+    function saveState() {
+      const { questions, answers, index, startedAt, finishedAt, perQuestionMs } = state;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ questions, answers, index, startedAt, finishedAt, perQuestionMs }));
+    }
+    function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'); } catch { return null; } }
     const clearState = () => localStorage.removeItem(STORAGE_KEY);
+
+    // ===== Timers =====
+    function updateTotalTimer() { const end = state.finishedAt || Date.now(); $('#timer').textContent = state.startedAt ? formatDuration(end - state.startedAt) : '00:00'; }
+    function startTotalTimer() { stopTotalTimer(); totalTimerHandle = setInterval(updateTotalTimer, 250); }
+    function stopTotalTimer() { if (totalTimerHandle) { clearInterval(totalTimerHandle); totalTimerHandle = null; } }
+
+    function updateQuestionTimer() {
+      const acc = state.perQuestionMs[state.index] || 0;
+      const live = state.currentEnterAt ? (Date.now() - state.currentEnterAt) : 0;
+      $('#questionTimer').textContent = formatDuration(acc + live);
+    }
+    function startQuestionTimer() { stopQuestionTimer(); qTimerHandle = setInterval(updateQuestionTimer, 250); }
+    function stopQuestionTimer() { if (qTimerHandle) { clearInterval(qTimerHandle); qTimerHandle = null; } }
+    function commitTime() {
+      if (state.currentEnterAt != null) {
+        const delta = Date.now() - state.currentEnterAt;
+        state.perQuestionMs[state.index] = (state.perQuestionMs[state.index] || 0) + delta;
+        state.currentEnterAt = null;
+      }
+    }
 
     // ===== UI =====
     function showSection(id) { ['uploadSection','quizSection','summarySection'].forEach(sec => document.getElementById(sec).classList.toggle('d-none', sec !== id)); }
-    function updateTimer() { const end = state.finishedAt || Date.now(); const t = state.startedAt ? formatDuration(end - state.startedAt) : '00:00'; document.getElementById('timer').textContent = t; }
-    function startTimer() { stopTimer(); timerHandle = setInterval(updateTimer, 250); }
-    function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
-
-    function renderProgress() { document.getElementById('progressText').textContent = `${Math.min(state.index+1, state.questions.length)}/${state.questions.length}`; }
+    function renderProgress() { $('#progressText').textContent = `${Math.min(state.index+1, state.questions.length)}/${state.questions.length}`; }
 
     function renderQuestion() {
       const q = state.questions[state.index];
-      document.getElementById('qIndexText').textContent = state.index + 1;
-      document.getElementById('qTotalText').textContent = state.questions.length;
-      document.getElementById('questionText').textContent = q.text;
-      document.getElementById('questionId').textContent = `ID: ${q.id}`;
+      $('#qIndexText').textContent = state.index + 1;
+      $('#qTotalText').textContent = state.questions.length;
+      $('#questionText').textContent = q.text;
+      $('#selectionHint').textContent = (q.correct.length > 1) ? `Selecciona ${q.correct.length} opciones` : 'Selecciona 1 opción';
 
-      const isMulti = q.correct.length > 1;
-      document.getElementById('selectionHint').textContent = isMulti ? `Selecciona ${q.correct.length} opciones` : 'Selecciona 1 opción';
-
-      const cont = document.getElementById('optionsContainer');
-      cont.innerHTML = '';
-
-      // Normalizar respuesta almacenada a array de letras
-      let current = state.answers[state.index];
-      if (!Array.isArray(current)) current = current ? [current] : [];
-
+      const cont = $('#optionsContainer'); cont.innerHTML = '';
+      let current = state.answers[state.index]; if (!Array.isArray(current)) current = current ? [current] : [];
       q.options.forEach((optText, i) => {
         const letter = String.fromCharCode(65 + i);
         const optId = `opt_${state.index}_${letter}`;
         const div = document.createElement('div');
         div.className = 'option-item form-check p-3 rounded border d-flex align-items-start gap-2 cursor-pointer';
         div.innerHTML = `
-          <input class="form-check-input mt-1" type="${isMulti ? 'checkbox' : 'radio'}" name="options${state.index}" id="${optId}" value="${letter}">
+          <input class="form-check-input mt-1" type="${q.correct.length>1 ? 'checkbox' : 'radio'}" name="options${state.index}" id="${optId}" value="${letter}">
           <label class="form-check-label w-100" for="${optId}">
             <span class="badge text-bg-light me-2">${letter}</span>
             <span>${optText}</span>
-          </label>
-        `;
+          </label>`;
         const input = div.querySelector('input');
         input.checked = current.includes(letter);
         div.addEventListener('click', (e) => {
-          // Evitar que el click en el contenedor rompa el estado de checkboxes
-          if ((e.target || e.srcElement).tagName !== 'INPUT') {
-            input.checked = !input.checked;
-          }
-          if (isMulti) {
-            let sel = new Set((state.answers[state.index] || []));
+          if ((e.target||e.srcElement).tagName !== 'INPUT') input.checked = !input.checked;
+          if (q.correct.length>1) {
+            const set = new Set(state.answers[state.index] || []);
             if (input.checked) {
-              sel.add(letter);
-              if (sel.size > q.correct.length) {
-                // Limitar máximo seleccionadas
-                input.checked = false; sel.delete(letter);
-                // Feedback sutil
-                const hint = document.getElementById('selectionHint');
-                hint.classList.add('text-danger');
-                setTimeout(() => hint.classList.remove('text-danger'), 400);
-              }
-            } else {
-              sel.delete(letter);
-            }
-            state.answers[state.index] = Array.from(sel).sort();
+              set.add(letter);
+              if (set.size > q.correct.length) { input.checked = false; set.delete(letter); }
+            } else { set.delete(letter); }
+            state.answers[state.index] = Array.from(set).sort();
           } else {
             state.answers[state.index] = [letter];
           }
@@ -351,14 +339,17 @@
         cont.appendChild(div);
       });
 
-      document.getElementById('btnPrev').disabled = state.index === 0;
-      document.getElementById('btnNext').disabled = state.index >= state.questions.length - 1;
+      $('#btnPrev').disabled = state.index === 0;
+      $('#btnNext').disabled = state.index >= state.questions.length - 1;
+
+      // timers por pregunta
+      startQuestionTimer();
+      state.currentEnterAt = Date.now();
+      updateQuestionTimer();
     }
 
-    const goNext = () => { if (state.index < state.questions.length - 1) { state.index++; saveState(); renderProgress(); renderQuestion(); } };
-    const goPrev = () => { if (state.index > 0) { state.index--; saveState(); renderProgress(); renderQuestion(); } };
-
-    function finalizeQuiz() { state.finishedAt = Date.now(); saveState(); showSummary(); }
+    function goNext() { if (state.index < state.questions.length - 1) { commitTime(); state.index++; saveState(); renderProgress(); renderQuestion(); } }
+    function goPrev() { if (state.index > 0) { commitTime(); state.index--; saveState(); renderProgress(); renderQuestion(); } }
 
     function calculateResults() {
       const results = state.questions.map((q, i) => {
@@ -366,12 +357,8 @@
         const chosenSorted = [...chosenArr].sort();
         const correctSorted = [...q.correct].sort();
         const isCorrect = chosenSorted.length === correctSorted.length && chosenSorted.every((v, idx) => v === correctSorted[idx]);
-        return {
-          index: i+1, id: q.id, question: q.text,
-          chosen: chosenSorted.join(' | ') || null,
-          correct: correctSorted.join(' | '),
-          isCorrect, explanation: q.explanation || ''
-        };
+        const timeMs = state.perQuestionMs[i] || 0;
+        return { index: i+1, id: q.id, question: q.text, chosen: chosenSorted.join(' | ') || null, correct: correctSorted.join(' | '), isCorrect, explanation: q.explanation || '', timeMs };
       });
       const correctCount = results.filter(r => r.isCorrect).length;
       const incorrectCount = results.length - correctCount;
@@ -382,14 +369,15 @@
 
     function showSummary() {
       showSection('summarySection');
-      stopTimer(); updateTimer();
+      stopTotalTimer(); stopQuestionTimer(); updateTotalTimer();
+
       const { results, correctCount, incorrectCount, duration, score } = calculateResults();
       $('#summaryTime').textContent = formatDuration(duration);
       $('#summaryCorrect').textContent = `${correctCount}`;
       $('#summaryIncorrect').textContent = `${incorrectCount}`;
       $('#summaryScore').textContent = `${score}%`;
-      const tbody = $('#summaryTableBody');
-      tbody.innerHTML = '';
+
+      const tbody = $('#summaryTableBody'); tbody.innerHTML = '';
       results.forEach(r => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -399,33 +387,41 @@
           <td>${r.chosen ?? '<span class="text-secondary">—</span>'}</td>
           <td>${r.correct}</td>
           <td>${r.isCorrect ? '<span class="badge text-bg-success">Correcta</span>' : '<span class="badge text-bg-danger">Incorrecta</span>'}</td>
+          <td>${formatDuration(r.timeMs)}</td>
           <td>${r.explanation ? r.explanation : '<span class="text-secondary">—</span>'}</td>`;
         tbody.appendChild(tr);
       });
     }
 
+    function finalizeQuiz() { commitTime(); state.finishedAt = Date.now(); saveState(); showSummary(); }
+
     function startQuizWith(questions) {
       state.questions = questions;
-      state.answers = new Array(questions.length).fill([]); // arrays de letras
+      state.answers = new Array(questions.length).fill([]);
+      state.perQuestionMs = new Array(questions.length).fill(0);
       state.index = 0;
       state.startedAt = Date.now();
       state.finishedAt = null;
+      state.currentEnterAt = null;
       saveState();
+
       showSection('quizSection');
       renderProgress();
       renderQuestion();
-      startTimer();
+      startTotalTimer();
     }
 
     function resumeSavedAttempt(saved) {
       state.questions = saved.questions || [];
       state.answers = Array.isArray(saved.answers) ? saved.answers : new Array(state.questions.length).fill([]);
+      state.perQuestionMs = Array.isArray(saved.perQuestionMs) ? saved.perQuestionMs : new Array(state.questions.length).fill(0);
       state.index = Math.min(saved.index || 0, state.questions.length - 1);
       state.startedAt = saved.startedAt || Date.now();
       state.finishedAt = saved.finishedAt || null;
-      showSection(state.finishedAt ? 'summarySection' : 'quizSection');
-      if (!state.finishedAt) { startTimer(); renderQuestion(); renderProgress(); }
-      else { showSummary(); }
+      state.currentEnterAt = null;
+
+      if (state.finishedAt) { showSummary(); }
+      else { showSection('quizSection'); startTotalTimer(); renderProgress(); renderQuestion(); }
     }
 
     function resetKeepingQuestions() {
@@ -433,14 +429,16 @@
       const qs = state.questions;
       state.questions = qs;
       state.answers = new Array(qs.length).fill([]);
+      state.perQuestionMs = new Array(qs.length).fill(0);
       state.index = 0;
       state.startedAt = Date.now();
       state.finishedAt = null;
+      state.currentEnterAt = null;
       saveState();
       showSection('quizSection');
       renderProgress();
       renderQuestion();
-      startTimer();
+      startTotalTimer();
     }
 
     function buildPreviewTable(questions) {
@@ -475,8 +473,8 @@
 
     function downloadResultsCSV() {
       const { results, duration, score } = calculateResults();
-      const header = ['index','id','question','chosen','correct','is_correct','explanation'];
-      const rows = results.map(r => [r.index, r.id, r.question, r.chosen || '', r.correct, r.isCorrect ? '1' : '0', r.explanation]);
+      const header = ['index','id','question','chosen','correct','is_correct','time_mmss','time_seconds','explanation'];
+      const rows = results.map(r => [r.index, r.id, r.question, r.chosen || '', r.correct, r.isCorrect ? '1' : '0', formatDuration(r.timeMs), Math.round(r.timeMs/1000), r.explanation]);
       const meta = [ ['duration_mmss', formatDuration(duration)], ['score_percent', `${score}`] ];
       const csv = [ '# resumen', meta.map(([k,v]) => `${k},${v}`).join('\n'), '# resultados', header.join(','),
         ...rows.map(r => r.map(v => { const s = String(v ?? ''); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replaceAll('"','""') + '"' : s; }).join(','))
@@ -488,40 +486,37 @@
     }
 
     // ===== Eventos =====
-    document.getElementById('btnPreviewCsv').addEventListener('click', async () => {
-      const file = document.getElementById('csvInput').files?.[0];
-      if (!file) { alert('Selecciona un archivo CSV.'); return; }
+    $('#btnPreviewCsv').addEventListener('click', async () => {
+      const file = $('#csvInput').files?.[0]; if (!file) { alert('Selecciona un archivo CSV.'); return; }
       const text = await file.text();
       let questions; try { questions = csvToQuestions(text); } catch (e) { alert('Error leyendo CSV: ' + e.message); return; }
-      document.getElementById('csvPreview').innerHTML = buildPreviewTable(questions) + '<div class="alert alert-info mt-2 py-2 small">Al iniciar: barajar preguntas, recortar a 65 y barajar opciones conservando la(s) correcta(s).</div>';
-      document.getElementById('btnStart').disabled = false;
+      $('#csvPreview').innerHTML = buildPreviewTable(questions) + '<div class="alert alert-info mt-2 py-2 small">Al iniciar: barajar preguntas, recortar a 65 y barajar opciones conservando la(s) correcta(s). Se medirá el tiempo por pregunta y total.</div>';
+      $('#btnStart').disabled = false;
     });
 
-    document.getElementById('btnStart').addEventListener('click', async () => {
-      const file = document.getElementById('csvInput').files?.[0]; if (!file) { alert('Selecciona un archivo CSV.'); return; }
+    $('#btnStart').addEventListener('click', async () => {
+      const file = $('#csvInput').files?.[0]; if (!file) { alert('Selecciona un archivo CSV.'); return; }
       const text = await file.text();
       let questions; try { questions = csvToQuestions(text); } catch (e) { alert('Error leyendo CSV: ' + e.message); return; }
       const picked = pickShuffledTop65(questions);
       startQuizWith(picked);
     });
 
-    document.getElementById('btnPrev').addEventListener('click', goPrev);
-    document.getElementById('btnNext').addEventListener('click', goNext);
-    document.getElementById('btnFinish').addEventListener('click', () => { if (confirm('¿Deseas finalizar la prueba?')) finalizeQuiz(); });
+    $('#btnPrev').addEventListener('click', goPrev);
+    $('#btnNext').addEventListener('click', goNext);
+    $('#btnFinish').addEventListener('click', () => { if (confirm('¿Deseas finalizar la prueba?')) finalizeQuiz(); });
 
-    document.getElementById('btnRetake').addEventListener('click', () => { if (confirm('Esto reiniciará tus respuestas.')) resetKeepingQuestions(); });
-    document.getElementById('btnBackHome').addEventListener('click', () => showSection('uploadSection'));
-    document.getElementById('btnDownloadTemplate').addEventListener('click', downloadTemplateCSV);
-    document.getElementById('btnDownloadResults').addEventListener('click', downloadResultsCSV);
-    document.getElementById('btnClearState').addEventListener('click', () => { clearState(); alert('Intento guardado eliminado.'); document.getElementById('btnResume').classList.add('d-none'); });
-    document.getElementById('btnResume').addEventListener('click', () => { const saved = loadState(); if (saved) resumeSavedAttempt(saved); });
+    $('#btnRetake').addEventListener('click', () => { if (confirm('Esto reiniciará tus respuestas.')) resetKeepingQuestions(); });
+    $('#btnBackHome').addEventListener('click', () => showSection('uploadSection'));
+    $('#btnDownloadTemplate').addEventListener('click', downloadTemplateCSV);
+    $('#btnDownloadResults').addEventListener('click', downloadResultsCSV);
+    $('#btnClearState').addEventListener('click', () => { clearState(); alert('Intento guardado eliminado.'); $('#btnResume').classList.add('d-none'); });
+    $('#btnResume').addEventListener('click', () => { const saved = loadState(); if (saved) resumeSavedAttempt(saved); });
 
     window.addEventListener('DOMContentLoaded', () => {
       const saved = loadState();
-      if (saved && Array.isArray(saved.questions) && saved.questions.length) {
-        document.getElementById('btnResume').classList.remove('d-none');
-      }
-      updateTimer();
+      if (saved && Array.isArray(saved.questions) && saved.questions.length) { $('#btnResume').classList.remove('d-none'); }
+      updateTotalTimer();
     });
   </script>
 </body>
